@@ -114,6 +114,18 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 
 void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty) 
 {
+	FrameId frameNum;
+    try {
+        hashTable->lookup(file, pageNo, frameNum);
+        if (bufDescTable[frameNum].pinCnt == 0) 
+            throw PageNotPinnedException(file->filename(), pageNo, frameNum);
+        bufDescTable[frameNum].pinCnt--;
+        if(dirty) bufDescTable[frameNum].dirty = true;
+    }
+    catch(HashNotFoundException e)
+    {
+
+    }
 }
 
 void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page) 
@@ -126,6 +138,7 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 	bufDescTable[frameNum].Set(file, pageNo);
 	page = &bufPool[frameNum];
 }
+
 
 void BufMgr::flushFile(const File* file) 
 {
