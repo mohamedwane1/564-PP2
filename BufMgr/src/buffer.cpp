@@ -40,6 +40,14 @@ BufMgr::BufMgr(std::uint32_t bufs)
 
 
 BufMgr::~BufMgr() {
+	for(int i = 0; i < numBufs; i++){
+		if(bufDescTable[i].dirty){
+			flushFile(bufDescTable[i].file);
+		}
+	}
+	delete [] bufPool;
+	delete [] bufDescTable;
+	
 }
 
 void BufMgr::advanceClock()
@@ -49,23 +57,35 @@ void BufMgr::advanceClock()
 
 void BufMgr::allocBuf(FrameId & frame) 
 {
-	FrameId start = *frame;
-	do {
-		frame = clockHand;
-		if (frame.refbit == true) {
-			frame.refbit = false;
-		} else if (frame.pinCnt == 0) {
-			if (frame.dirty == 1) {
-				//write to disk
-			}
-			else {
-				hashTable->remove(frame.file, frame.pageNo);
-			}
-			return;
-		}
+	bool found = false;
+	std::uint32_t i = 0;
+
+	for(i = 0; i < numBufs; i++) {
 		advanceClock();
-	} while (clockHand != start);
-	throw BufferExceededException();
+		if (!bufDescTable[clockHand].valid) {
+			found = true;
+			break;
+		}
+		else if (bufDescTable[clockHand].refbit) {
+			bufDescTable[clockHand].refbit = false;
+		}
+		else if (bufDescTable[clockHand].pinCnt != 0){
+
+		}
+		else 
+		{
+			found = true;
+			hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
+			if (bufDescTable[clockHand].dirty)
+			{
+				bufDescTable[clockHand].dirty = false;
+				bufDescTable[clockHand].file->writePage(bufPool[clockHand]); 
+			}
+		}
+	}
+	if (!found && i >= numBufs) throw BufferExceededException();
+	bufDescTable[clockHand].Clear();
+	frame = clockHand;	
 }
 
 	
@@ -84,6 +104,23 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 
 void BufMgr::flushFile(const File* file) 
 {
+	for(std::uint32_t i = 0; i < numBufs; i++){
+		if(bufDescTable[i].file == file && !bufDescTable[i].valid){
+			throw BadBufferException(bufDescTable[i].frameNo, bufDescTable[i].dirty, bufDescTable[i].valid, bufDescTable[i].refbit);
+		}
+		else if(bufDescTable[i].file == file && bufDescTable[i].valid){
+			if(bufDescTable[i].pinCnt != 0){
+				throw PagePinnedException(file->filename(), bufDescTable[i].pageNo, bufDescTable[i].frameNo);
+			}
+			if(bufDescTable[i].dirty){
+				bufDescTable[i].file->writePage(bufPool[bufDescTable[i].frameNo]);
+				bufDescTable[i].dirty = false;
+			}
+			hashTable->remove(file, bufDescTable[i].pageNo);
+			bufDescTable[i].Clear();
+		}
+		
+	}
 }
 
 void BufMgr::disposePage(File* file, const PageId PageNo)
