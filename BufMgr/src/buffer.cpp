@@ -13,6 +13,7 @@
 #include "exceptions/page_pinned_exception.h"
 #include "exceptions/bad_buffer_exception.h"
 #include "exceptions/hash_not_found_exception.h"
+ #include <stdint.h>
 
 namespace badgerdb { 
 
@@ -34,7 +35,6 @@ BufMgr::BufMgr(std::uint32_t bufs)
 
   int htsize = ((((int) (bufs * 1.2))*2)/2)+1;
   hashTable = new BufHashTbl (htsize);  // allocate the buffer hash table
-
   clockHand = bufs - 1;
 }
 
@@ -52,7 +52,8 @@ BufMgr::~BufMgr() {
 
 void BufMgr::advanceClock()
 {
-	clockHand = (clockHand + 1) % numBufs;
+	clockHand++;
+	clockHand %= numBufs;
 }
 
 void BufMgr::allocBuf(FrameId & frame) 
@@ -91,6 +92,23 @@ void BufMgr::allocBuf(FrameId & frame)
 	
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
+	FrameId frameNum;
+	try
+	{
+		hashTable->lookup(file, pageNo, frameNum);
+		bufDescTable[frameNum].refbit = true;
+		bufDescTable[frameNum].pinCnt += 1;
+	}
+	catch(HashNotFoundException e)
+	{
+		allocBuf(frameNum); 
+		bufPool[frameNum] = file->readPage(pageNo);
+		hashTable->insert(file, pageNo, frameNum);
+		bufDescTable[frameNum].Set(file, pageNo);
+	}
+	
+	page = &bufPool[frameNum];
+
 }
 
 
@@ -100,6 +118,13 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
 
 void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page) 
 {
+	FrameId frameNum;
+	allocBuf(frameNum);
+	bufPool[frameNum] = file->allocatePage();
+	pageNo = bufPool[frameNum].page_number();
+	hashTable->insert(file, pageNo, frameNum);
+	bufDescTable[frameNum].Set(file, pageNo);
+	page = &bufPool[frameNum];
 }
 
 void BufMgr::flushFile(const File* file) 
@@ -125,11 +150,28 @@ void BufMgr::flushFile(const File* file)
 
 void BufMgr::disposePage(File* file, const PageId PageNo)
 {
+	//Check for page in the buffer pool
+	FrameId frameNum;
+	try {
+		hashTable->lookup(file, PageNo, frameNum);
+		//if page is found delete it & write if necessary
+		if (bufDescTable[frameNum].dirty) {
+			bufDescTable[frameNum].dirty = false;
+			file->writePage(bufPool[frameNum]);
+		}
+		//clear the frame
+		bufDescTable[frameNum].Clear();
+		hashTable->remove(file, PageNo);
+		file->deletePage(PageNo);
+	} catch (HashNotFoundException e) {
+	file->deletePage(PageNo);
+	}
+
 }
 
 void BufMgr::printSelf(void) 
 {
-  BufDesc* tmpbuf;
+  	BufDesc* tmpbuf;
 	int validFrames = 0;
   
   for (std::uint32_t i = 0; i < numBufs; i++)
