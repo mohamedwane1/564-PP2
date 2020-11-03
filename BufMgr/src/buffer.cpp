@@ -13,6 +13,7 @@
 #include "exceptions/page_pinned_exception.h"
 #include "exceptions/bad_buffer_exception.h"
 #include "exceptions/hash_not_found_exception.h"
+ #include <stdint.h>
 
 namespace badgerdb { 
 
@@ -34,7 +35,6 @@ BufMgr::BufMgr(std::uint32_t bufs)
 
   int htsize = ((((int) (bufs * 1.2))*2)/2)+1;
   hashTable = new BufHashTbl (htsize);  // allocate the buffer hash table
-
   clockHand = bufs - 1;
 }
 
@@ -44,33 +44,61 @@ BufMgr::~BufMgr() {
 
 void BufMgr::advanceClock()
 {
-	clockHand = (clockHand + 1) % numBufs;
+	clockHand++;
+	clockHand %= numBufs;
 }
 
 void BufMgr::allocBuf(FrameId & frame) 
 {
-	FrameId start = *frame;
-	do {
-		frame = clockHand;
-		if (frame.refbit == true) {
-			frame.refbit = false;
-		} else if (frame.pinCnt == 0) {
-			if (frame.dirty == 1) {
-				//write to disk
-			}
-			else {
-				hashTable->remove(frame.file, frame.pageNo);
-			}
-			return;
-		}
+	bool found = false;
+	std::uint32_t i = 0;
+	for(i = 0; i < numBufs; i++) 
+	{
 		advanceClock();
-	} while (clockHand != start);
-	throw BufferExceededException();
+		if (!bufDescTable[clockHand].valid) {
+			found = true;
+			break;
+		}
+			
+		else if (bufDescTable[clockHand].refbit) {
+			bufDescTable[clockHand].refbit = false;
+
+		}
+		else if (bufDescTable[clockHand].pinCnt == 0) {
+			found = true;
+			hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
+			if (bufDescTable[clockHand].dirty)
+			{
+				bufDescTable[clockHand].dirty = false;
+				bufDescTable[clockHand].file->writePage(bufPool[clockHand]); 
+			}
+		}
+	}
+	if (!found && i >= numBufs) throw BufferExceededException();
+	bufDescTable[clockHand].Clear();
+	frame = clockHand;	
 }
 
 	
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
+	FrameId frameNum;
+	try
+	{
+		hashTable->lookup(file, pageNo, frameNum);
+		bufDescTable[frameNum].refbit = true;
+		bufDescTable[frameNum].pinCnt += 1;
+	}
+	catch(HashNotFoundException e)
+	{
+		allocBuf(frameNum); 
+		bufPool[frameNum] = file->readPage(pageNo);
+		hashTable->insert(file, pageNo, frameNum);
+		bufDescTable[frameNum].Set(file, pageNo);
+	}
+	
+	page = &bufPool[frameNum];
+
 }
 
 
@@ -80,6 +108,13 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
 
 void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page) 
 {
+	FrameId frameNum;
+	allocBuf(frameNum);
+	bufPool[frameNum] = file->allocatePage();
+	pageNo = bufPool[frameNum].page_number();
+	hashTable->insert(file, pageNo, frameNum);
+	bufDescTable[frameNum].Set(file, pageNo);
+	page = &bufPool[frameNum];
 }
 
 void BufMgr::flushFile(const File* file) 
@@ -92,7 +127,7 @@ void BufMgr::disposePage(File* file, const PageId PageNo)
 
 void BufMgr::printSelf(void) 
 {
-  BufDesc* tmpbuf;
+  	BufDesc* tmpbuf;
 	int validFrames = 0;
   
   for (std::uint32_t i = 0; i < numBufs; i++)
