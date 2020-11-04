@@ -73,20 +73,20 @@ void BufMgr::allocBuf(FrameId & frame)
 
 	for(i = 0; i <= numBufs; i++) {
 		advanceClock();
+		//if the frame is already empty, allocate it
 		if (!bufDescTable[clockHand].valid) {
 			found = true;
 			break;
 		}
+		//else if the frame has been referenced, set the refbit to 0 & go to next frame
 		else if (bufDescTable[clockHand].refbit) {
 			bufDescTable[clockHand].refbit = false;
 		}
-		else if (bufDescTable[clockHand].pinCnt != 0){
-
-		}
-		else 
-		{
+		//else if the frame has 0 pins, check dirty bit & break out of loop
+		else if (bufDescTable[clockHand].pinCnt == 0){
 			found = true;
 			hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
+			//if dirty bit is set, write page to the file & set it to false
 			if (bufDescTable[clockHand].dirty)
 			{
 				bufDescTable[clockHand].dirty = false;
@@ -95,6 +95,7 @@ void BufMgr::allocBuf(FrameId & frame)
 			break;
 		}
 	}
+	//if clock completes one revolution, throw BufferExceededException
 	if (!found && i >= numBufs) throw BufferExceededException();
 	bufDescTable[clockHand].Clear();
 	frame = clockHand;	
