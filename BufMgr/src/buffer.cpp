@@ -1,6 +1,11 @@
 /**
  * @author See Contributors.txt for code contributors and overview of BadgerDB.
- *
+ * 
+ * 
+ * Members: Michael He (id: 907 866 2245), Mohamed Wane (id: 907 766 7302), Carter Olson (id: 907 429 2807)
+ * File Description:  This class is implements a buffer pool which consists of 
+ * frames and uses the clock replacement algorithm to figure out which frame to use next.
+ * 
  * @section LICENSE
  * Copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
  */
@@ -18,7 +23,7 @@
 namespace badgerdb { 
 
 //----------------------------------------
-// Constructor of the class BufMgr
+// Constructor of the class BufMgr  Michael He 907 866 2245 Mohamed Wane 907 766 7302
 //----------------------------------------
 
 BufMgr::BufMgr(std::uint32_t bufs)
@@ -98,21 +103,32 @@ void BufMgr::allocBuf(FrameId & frame)
 	
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
+	// variable representing frame number
 	FrameId frameNum;
 	try
 	{
+		// checks whether page is already in buffer pool using lookup method
 		hashTable->lookup(file, pageNo, frameNum);
+
+		// sets reference bit and pin count accordingly
 		bufDescTable[frameNum].refbit = true;
 		bufDescTable[frameNum].pinCnt += 1;
 	}
 	catch(HashNotFoundException e)
 	{
+		// Case 1: Page is not in buffer pool
+        // allocBuf() is called to allocate a buffer frame 
 		allocBuf(frameNum); 
+
+		 // readPage() is called to read the page from disk into the buffer poolframe
 		bufPool[frameNum] = file->readPage(pageNo);
+
+		 // page is inserted into hashtable, set() is used to invoke to set it up properly
 		hashTable->insert(file, pageNo, frameNum);
 		bufDescTable[frameNum].Set(file, pageNo);
 	}
 	
+	// pointer to frame is returned
 	page = &bufPool[frameNum];
 
 }
@@ -120,17 +136,25 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 
 void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty) 
 {
+	// variable representing frame number
 	FrameId frameNum;
     try {
+		// checks if page is already in buffer pool
         hashTable->lookup(file, pageNo, frameNum);
+
+		// throws PAGENOTPINNED if the pin count is already 0
         if (bufDescTable[frameNum].pinCnt == 0) 
             throw PageNotPinnedException(file->filename(), pageNo, frameNum);
+
+		// decrements pin count
         bufDescTable[frameNum].pinCnt--;
+
+		// if dirty is true, set dirtybit;
         if(dirty) bufDescTable[frameNum].dirty = true;
     }
     catch(HashNotFoundException e)
     {
-
+  // does nothing if page is not found in lookup
     }
 }
 
@@ -138,10 +162,17 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 {
 	FrameId frameNum;
 	allocBuf(frameNum);
+
+	// Allocate an empty page in the specified file
 	bufPool[frameNum] = file->allocatePage();
 	pageNo = bufPool[frameNum].page_number();
+
+	// entry is inserted into the hash table and Set() 
+    // is invoked on the frame to set it up properly
 	hashTable->insert(file, pageNo, frameNum);
 	bufDescTable[frameNum].Set(file, pageNo);
+
+	// Pointer to the buffer frame allocated for the page via the page parameter.
 	page = &bufPool[frameNum];
 }
 
@@ -165,10 +196,13 @@ void BufMgr::flushFile(const File* file)
 			if(bufDescTable[i].pinCnt != 0){
 				throw PagePinnedException(file->filename(), bufDescTable[i].pageNo, bufDescTable[i].frameNo);
 			}
+
+			//If the page is dirty, write page to flush page to disk and set dirtybit to false
 			if(bufDescTable[i].dirty){
 				bufDescTable[i].file->writePage(bufPool[bufDescTable[i].frameNo]);
 				bufDescTable[i].dirty = false;
 			}
+			//remove the page from the hash table whether it is clean or dirty
 			hashTable->remove(file, bufDescTable[i].pageNo);
 			bufDescTable[i].Clear();
 		}
