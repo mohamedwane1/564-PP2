@@ -61,7 +61,7 @@ void BufMgr::allocBuf(FrameId & frame)
 	bool found = false;
 	std::uint32_t i = 0;
 
-	for(i = 0; i < numBufs; i++) {
+	for(i = 0; i <= numBufs; i++) {
 		advanceClock();
 		if (!bufDescTable[clockHand].valid) {
 			found = true;
@@ -82,6 +82,7 @@ void BufMgr::allocBuf(FrameId & frame)
 				bufDescTable[clockHand].dirty = false;
 				bufDescTable[clockHand].file->writePage(bufPool[clockHand]); 
 			}
+			break;
 		}
 	}
 	if (!found && i >= numBufs) throw BufferExceededException();
