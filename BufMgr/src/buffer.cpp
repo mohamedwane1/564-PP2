@@ -66,7 +66,7 @@ void BufMgr::allocBuf(FrameId & frame)
 	bool found = false;
 	std::uint32_t i = 0;
 
-	for(i = 0; i < numBufs; i++) {
+	for(i = 0; i <= numBufs; i++) {
 		advanceClock();
 		if (!bufDescTable[clockHand].valid) {
 			found = true;
