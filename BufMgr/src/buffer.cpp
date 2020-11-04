@@ -38,7 +38,10 @@ BufMgr::BufMgr(std::uint32_t bufs)
   clockHand = bufs - 1;
 }
 
-
+/*
+* Go through the bufDesc table and if the page is dirty, flush the page by calling
+* flushFile(). After flushing the dirty files, deallocate the buffer pool and bufDescTable
+*/
 BufMgr::~BufMgr() {
 	for(int i = 0; i < numBufs; i++){
 		if(bufDescTable[i].dirty){
@@ -50,11 +53,13 @@ BufMgr::~BufMgr() {
 	
 }
 
+//Advance the clock to the next frame
 void BufMgr::advanceClock()
 {
 	clockHand++;
 	clockHand %= numBufs;
 }
+
 
 void BufMgr::allocBuf(FrameId & frame) 
 {
@@ -141,14 +146,23 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 	page = &bufPool[frameNum];
 }
 
-
+/*
+* Scans bufDescTable for pages in a file. We throw a BadBufferException if an 
+* invalid page in a file is found. If the page in the file is valid but the pincount
+* does not equal 0, we throw a pagePinnedException. If the page is valid and in the file and
+* the page is dirty, we cal writePage to flush the page to the disk and set the dirtbit to false.
+* We then remove the page from the hashtable and clear the bufdesc for the page frame.
+*
+*/
 void BufMgr::flushFile(const File* file) 
 {
 	for(std::uint32_t i = 0; i < numBufs; i++){
+		//if the page is in a file but invalid, throw exception
 		if(bufDescTable[i].file == file && !bufDescTable[i].valid){
 			throw BadBufferException(bufDescTable[i].frameNo, bufDescTable[i].dirty, bufDescTable[i].valid, bufDescTable[i].refbit);
 		}
 		else if(bufDescTable[i].file == file && bufDescTable[i].valid){
+			//if the page in the file is pinned, throw exception
 			if(bufDescTable[i].pinCnt != 0){
 				throw PagePinnedException(file->filename(), bufDescTable[i].pageNo, bufDescTable[i].frameNo);
 			}
